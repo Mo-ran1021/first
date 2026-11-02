@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>四级刷词 · 极速背诵</title>
+  <!-- mammoth.js CDN：用于前端解析 .docx 文件 -->
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+  <style>
+    /* ============ 基础重置 & CSS 变量 ============ */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg:          #F8F6F0;
+      --bg-alt:      #FAF9F6;
+      --primary:     #2B8CBF;
+      --primary-dk:  #1F7AAD;
+      --text:        #1F7AAD;
+      --card-bg:     #FFFFFF;
+      --shadow:      0 8px 30px rgba(0,0,0,0.04);
+      --radius:      18px;
+      --font-en:     Georgia, 'Songti SC', 'SimSun', serif;
+      --font-zh:     'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    html { font-size: 16px; }
+    body {
+      font-family: var(--font-zh);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ============ 工具类 ============ */
+    .hidden { display: none !important; }
+    .center   { display: flex; flex-direction: column; align-items: center; }
+
+    /* ============ Loading 动画 ============ */
+    .loading-spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid #C5D8E8;
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ============ 配置面板 (模块A) ============ */
+    #config-panel {
+      width: 100%;
+      max-width: 560px;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 36px 32px;
+      position: relative;
+    }
+    #config-panel h1 {
+      font-family: var(--font-en);
+      font-size: 1.6rem;
+      text-align: center;
+      margin-bottom: 8px;
+      color: var(--primary);
+    }
+    #config-panel .subtitle {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #8EA5B5;
+      margin-bottom: 28px;
+    }
+
+    /* 上传区域 */
+    #drop-zone {
+      border: 2px dashed #C5D8E8;
+      border-radius: var(--radius);
+      padding: 32px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      background: var(--bg-alt);
+    }
+    #drop-zone.drag-over { border-color: var(--primary); background: #EDF4FA; }
+    #drop-zone p { font-size: 0.95rem; color: #8EA5B5; }
+    #file-input { display: none; }
+
+    /* 导入状态 */
+    #import-status { margin-top: 12px; font-size: 0.85rem; text-align: center; min-height: 1.4em; }
+    #import-status.ok   { color: var(--primary); }
+    #import-status.err  { color: #C45B5B; }
+    #import-status.loading { color: #8EA5B5; display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+    /* 每日目标 */
+    .goal-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 24px 0 28px;
+    }
+    .goal-row label { font-size: 0.95rem; }
+    .goal-row input[type=range] { width: 160px; accent-color: var(--primary); }
+    .goal-val { font-weight: 600; min-width: 32px; text-align: center; }
+
+    /* 开始按钮 */
+    #btn-start {
+      display: block;
+      width: 100%;
+      padding: 14px 0;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--primary);
+      color: #fff;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #btn-start:hover { background: var(--primary-dk); }
+    #btn-start:disabled { background: #B0C8D8; cursor: not-allowed; }
+
+    /* 按钮下方柔和提示 */
+    .hint-text {
+      text-align: center;
+      font-size: 0.78rem;
+      color: #B8CCDC;
+      margin-top: 10px;
+      min-height: 1.2em;
+      transition: opacity 0.25s;
+    }
+
+    /* 配置面板右上角设置按钮 */
+    .settings-btn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 0.82rem;
+      color: #B0C8D8;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: color 0.2s, background 0.2s;
+    }
+    .settings-btn:hover { color: var(--primary); background: #EDF4FA; }
+    .settings-btn:disabled { color: #D0DCE6; cursor: not-allowed; }
+    .settings-btn:disabled:hover { background: none; }
+
+    /* ============ 刷词界面 (模块B) ============ */
+    #study-view {
+      width: 100%;
+      max-width: 720px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* 顶部进度 */
+    .progress-bar-wrap {
+      width: 100%;
+      height: 6px;
+      background: #DCE8F0;
+      border-radius: 3px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), #6BB5D6);
+      border-radius: 3px;
+      transition: width 0.35s ease;
+    }
+    .progress-text {
+      font-size: 0.85rem;
+      color: #8EA5B5;
+      margin-bottom: 20px;
+    }
+
+    /* 中央卡片 */
+    .word-card {
+      width: 100%;
+      max-width: 520px;
+      min-height: 220px;
+      background: var(--card-bg);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px 32px;
+      margin-bottom: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .word-card .word-en {
+      font-family: var(--font-en);
+      font-size: 2.6rem;
+      font-weight: 400;
+      color: var(--primary);
+      text-align: center;
+      line-height: 1.3;
+    }
+    .word-card .word-zh {
+      margin-top: 16px;
+      font-size: 1.1rem;
+      color: #8EA5B5;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      text-align: center;
+      max-width: 90%;
+    }
+    .word-card .word-zh.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .word-card.slide-out { animation: slideOut 0.28s ease forwards; }
+    @keyframes slideOut { to { transform: translateX(60px); opacity: 0; } }
+    .word-card.slide-in { animation: slideIn 0.28s ease forwards; }
+    @keyframes slideIn { from { transform: translateX(-60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* 按钮区 */
+    .btn-row { display: flex; gap: 16px; width: 100%; max-width: 400px; }
+    .btn {
+      flex: 1; padding: 14px 0; border: none; border-radius: var(--radius);
+      font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s; min-width: 0;
+    }
+    .btn-no { background: var(--bg-alt); color: var(--primary); border: 1.5px solid #C5D8E8; }
+    .btn-no:hover { background: #EDF4FA; }
+    .btn-yes { background: var(--primary); color: #fff; }
+    .btn-yes:hover { background: var(--primary-dk); }
+
+    /* 底部链接 */
+    .footer-links { margin-top: 32px; display: flex; gap: 16px; align-items: center; justify-content: center; }
+    .reset-link {
+      font-size: 0.78rem; color: #B0C8D8; cursor: pointer; border: none; background: none;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .reset-link:hover { color: var(--primary); }
+
+    /* ============ 奖励全屏 (模块C) ============ */
+    #reward-overlay {
+      position: fixed; inset: 0; background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 100; animation: fadeIn 0.4s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .reward-word {
+      font-family: var(--font-en); font-size: 4rem; font-weight: 700;
+      background: linear-gradient(135deg, var(--primary), #6BB5D6, #A4D4E6);
+      background-size: 200% 200%;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: drop-shadow(0 0 12px rgba(58,124,165,0.25));
+      animation: breathe 2.5s ease-in-out 1;
+    }
+    @keyframes breathe {
+      0%   { background-position: 0% 50%; transform: scale(1); }
+      50%  { background-position: 100% 50%; transform: scale(1.03); }
+      100% { background-position: 0% 50%; transform: scale(1); }
+    }
+    .reward-stats { margin-top: 20px; font-size: 1rem; color: #8EA5B5; }
+    #btn-again {
+      margin-top: 28px; padding: 14px 40px; border: 1.5px solid #C5D8E8;
+      border-radius: var(--radius); background: var(--bg-alt); color: var(--primary);
+      font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    #btn-again:hover { background: #EDF4FA; }
+
+    /* 彩带粒子 */
+    .confetti-piece {
+      position: fixed; width: 8px; height: 8px; border-radius: 2px;
+      opacity: 0.85; pointer-events: none; z-index: 101;
+      animation: confettiFall linear forwards;
+    }
+    @keyframes confettiFall {
+      0%   { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+    }
+
+    /* ============ 响应式微调 ============ */
+    @media (max-width: 480px) {
+      .word-card .word-en { font-size: 2rem; }
+      .reward-word        { font-size: 2.6rem; }
+      .btn-row            { gap: 10px; }
+      .btn                { padding: 12px 0; font-size: 0.95rem; }
+      #config-panel       { padding: 24px 18px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ====== 模块A：配置面板 ====== -->
+  <div id="config-panel">
+    <button class="settings-btn" id="btn-settings" disabled>设置 / 重新导入</button>
+    <h1>CET-4 刷词</h1>
+    <p class="subtitle">上传 .docx 词库，设定每日目标，即刻开始。</p>
+
+    <div id="drop-zone" tabindex="0">
+      <div class="icon">📄</div>
+      <p>拖拽 .docx 文件到这里，或点击选择</p>
+      <input type="file" id="file-input" accept=".docx" />
+    </div>
+    <div id="import-status"></div>
+
+    <div class="goal-row">
+      <label for="goal-slider">每日目标</label>
+      <input type="range" id="goal-slider" min="10" max="100" value="20" />
+      <span class="goal-val" id="goal-val">20</span>
+    </div>
+
+    <button id="btn-start" disabled>开始今日挑战</button>
+    <div class="hint-text" id="hint-text">请先导入词库才能开始哦~</div>
+  </div>
+
+  <!-- ====== 模块B：刷词主界面 ====== -->
+  <div id="study-view" class="hidden">
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+    <div class="progress-text" id="progress-text">0 / 20</div>
+
+    <div class="word-card" id="word-card">
+      <div class="word-en" id="word-en"></div>
+      <div class="word-zh" id="word-zh"></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-no" id="btn-no">我不会</button>
+      <button class="btn btn-yes" id="btn-yes">我认识</button>
+    </div>
+
+    <div class="footer-links">
+      <button class="reset-link" id="btn-reset">重置今日进度</button>
+      <button class="reset-link" id="btn-study-settings">设置 / 重新导入</button>
+    </div>
+  </div>
+
+  <!-- ====== 模块C：奖励全屏 ====== -->
+  <div id="reward-overlay" class="hidden">
+    <div class="reward-word" id="reward-word"></div>
+    <div class="reward-stats" id="reward-stats"></div>
+    <button id="btn-again">再来一组</button>
+  </div>
+
+  <script>
+    /* ==========================================================
+     *  核心 JS 逻辑
+     *  - localStorage 键名统一前缀 "cet4_"
+     *  - 词库格式: [{ en: "abandon", zh: "v. 放弃" }, ...]
+     * ========================================================== */
+
+    const $ = (s) => document.querySelector(s);
+
+    // ------ 状态 ------
+    let wordList = [];
+    let todayGoal  = 20;
+    let currentIdx = 0;
+    let knownCount = 0;
+    let unknownCount = 0;
+    let reviewList = [];
+    let zhVisible  = false;
+
+    // ------ localStorage ------
+    const LS = {
+      words: 'cet4_words', goal: 'cet4_goal', idx: 'cet4_idx',
+      known: 'cet4_known', unknown: 'cet4_unknown', review: 'cet4_review',
+    };
+    function saveState() {
+      localStorage.setItem(LS.words, JSON.stringify(wordList));
+      localStorage.setItem(LS.goal, todayGoal);
+      localStorage.setItem(LS.idx, currentIdx);
+      localStorage.setItem(LS.known, knownCount);
+      localStorage.setItem(LS.unknown, unknownCount);
+      localStorage.setItem(LS.review, JSON.stringify(reviewList));
+    }
+    function loadState() {
+      const w = localStorage.getItem(LS.words);
+      if (!w) return false;
+      wordList   = JSON.parse(w);
+      todayGoal  = +(localStorage.getItem(LS.goal) || 20);
+      currentIdx = +(localStorage.getItem(LS.idx) || 0);
+      knownCount = +(localStorage.getItem(LS.known) || 0);
+      unknownCount = +(localStorage.getItem(LS.unknown) || 0);
+      reviewList = JSON.parse(localStorage.getItem(LS.review) || '[]');
+      return true;
+    }
+    function clearState() {
+      [LS.goal, LS.idx, LS.known, LS.unknown, LS.review].forEach(k => localStorage.removeItem(k));
+    }
+
+    // ------ DOM 引用 ------
+    const configPanel  = $('#config-panel');
+    const studyView    = $('#study-view');
+    const rewardOvl    = $('#reward-overlay');
+    const wordCard     = $('#word-card');
+    const wordEn       = $('#word-en');
+    const wordZh       = $('#word-zh');
+    const btnNo        = $('#btn-no');
+    const btnYes       = $('#btn-yes');
+    const progFill     = $('#progress-fill');
+    const progText     = $('#progress-text');
+    const dropZone     = $('#drop-zone');
+    const fileInput    = $('#file-input');
+    const importSt     = $('#import-status');
+    const goalSlider   = $('#goal-slider');
+    const goalVal      = $('#goal-val');
+    const btnStart     = $('#btn-start');
+    const hintText     = $('#hint-text');
+    const btnSettings  = $('#btn-settings');
+    const btnStudySettings = $('#btn-study-settings');
+    const btnReset     = $('#btn-reset');
+    const btnAgain     = $('#btn-again');
+    const rewardWord   = $('#reward-word');
+    const rewardStats  = $('#reward-stats');
+
+    /* ============================================================
+     *  字符类型遍历解析算法 (Character Type Traversal)
+     *  核心思想：逐个字符扫描，按字符类型自动切分 en / zh
+     *  时间复杂度 O(N)，零回溯，不会卡死
+     * ============================================================ */
+
+    /**
+     * 判断字符属于哪一类：
+     *   'en' = 英文字母 / 连字符 / 撇号（单词合法字符）
+     *   'zh' = 中文 / 全角标点 / 其他非英文字符
+     *   'sp' = 空白字符（空格、Tab等）
+     */
+    function charType(ch) {
+      const code = ch.charCodeAt(0);
+      // 英文字母 a-z A-Z
+      if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) return 'en';
+      // 连字符 - 和撇号 '
+      if (code === 45 || code === 39) return 'en';
+      // 空白
+      if (code <= 32 || code === 160) return 'sp';
+      // 中文基本区 + 扩展A区
+      if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf)) return 'zh';
+      // 中文标点 & 全角符号
+      if ((code >= 0x3000 && code <= 0x303f) || (code >= 0xff00 && code <= 0xffef)) return 'zh';
+      // 其他 Unicode 字符（如希腊字母、西里尔字母等）归为 zh
+      if (code > 127) return 'zh';
+      // 其余 ASCII 标点/数字等归为 sp（分隔符）
+      return 'sp';
+    }
+
+    /**
+     * 单行解析：字符类型遍历
+     * 输入: "abandon   v. 放弃，抛弃"
+     * 输出: { en: "abandon", zh: "v. 放弃，抛弃" }
+     *
+     * 规则：
+     *   1. 从第一个 en 类字符开始收集 en 缓冲
+     *   2. 遇到第一个 zh 类字符时，en 缓冲冻结，剩余全部进 zh
+     *   3. 如果全行只有 en 和 sp → 纯英文单词
+     *   4. 如果全行只有 zh → 跳过（没有英文单词）
+     */
+    function parseLine(line) {
+      let enBuf = '';
+      let zhBuf = '';
+      let phase = 'seeking_en'; // seeking_en | collecting_en | collecting_zh
+
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        const ct = charType(ch);
+
+        if (phase === 'seeking_en') {
+          if (ct === 'en') {
+            enBuf += ch;
+            phase = 'collecting_en';
+          }
+          // sp 和 zh 在 seeking_en 阶段直接忽略
+        } else if (phase === 'collecting_en') {
+          if (ct === 'en') {
+            enBuf += ch;
+          } else if (ct === 'zh') {
+            // 遇到第一个中文字符 → en 冻结，剩余全部进 zh
+            zhBuf += ch;
+            phase = 'collecting_zh';
+          }
+          // sp 在 collecting_en 阶段忽略（自动跳过 en 和 zh 之间的任意分隔符）
+        } else if (phase === 'collecting_zh') {
+          zhBuf += ch;
+        }
+      }
+
+      enBuf = enBuf.trim();
+      zhBuf = zhBuf.trim();
+
+      if (!enBuf) return null; // 没有英文单词，跳过
+      return { en: enBuf, zh: zhBuf || '— 暂未录入 —' };
+    }
+
+    /**
+     * 解析 .docx 文件（主入口）
+     * 使用 mammoth 提取纯文本 → 逐行字符遍历 → 分片执行防卡死
+     */
+    function handleFile(file) {
+      if (!file.name.endsWith('.docx')) {
+        importSt.textContent = '仅支持 .docx 格式';
+        importSt.className = 'err';
+        return;
+      }
+
+      // 立即显示 Loading 动画
+      importSt.innerHTML = '<span class="loading-spinner"></span>解析中…';
+      importSt.className = 'loading';
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        // mammoth 提取纯文本（异步，不阻塞）
+        mammoth.extractRawText({ arrayBuffer: e.target.result })
+          .then(result => {
+            const raw = result.value;
+            const lines = raw.split(/\r?\n/);
+
+            wordList = [];
+            let lineIdx = 0;
+            const CHUNK_SIZE = 200; // 每次处理 200 行，让步给主线程
+
+            /**
+             * 分片解析函数：每次处理 CHUNK_SIZE 行后 setTimeout 释放主线程
+             * 确保 Loading 动画流畅，即使上万行也不卡
+             */
+            function parseChunk() {
+              const end = Math.min(lineIdx + CHUNK_SIZE, lines.length);
+              for (; lineIdx < end; lineIdx++) {
+                const line = lines[lineIdx].trim();
+                if (!line) continue;
+
+                // 跳过纯序号行： "1."、"①" 等
+                if (/^\s*[\d①②③④⑤⑥⑦⑧⑨⑩]+\s*[.、)\]]?\s*$/.test(line)) continue;
+
+                const parsed = parseLine(line);
+                if (parsed) wordList.push(parsed);
+              }
+
+              if (lineIdx < lines.length) {
+                // 还有剩余行 → 下一帧继续
+                setTimeout(parseChunk, 0);
+              } else {
+                // 全部完成
+                onParseComplete();
+              }
+            }
+
+            // 启动分片解析
+            parseChunk();
+          })
+          .catch(err => {
+            importSt.textContent = '解析失败: ' + err.message;
+            importSt.className = 'err';
+          });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    /** 解析完成回调 */
+    function onParseComplete() {
+      if (wordList.length === 0) {
+        importSt.textContent = '未识别到有效单词，请检查格式';
+        importSt.className = 'err';
+        return;
+      }
+
+      importSt.textContent = `✅ 已导入 ${wordList.length} 个单词`;
+      importSt.className = 'ok';
+      btnStart.disabled = false;
+      btnSettings.disabled = false;
+      hintText.style.opacity = '0';
+      localStorage.setItem(LS.words, JSON.stringify(wordList));
+    }
+
+    // ------ 模块A：配置面板逻辑 ------
+
+    goalSlider.addEventListener('input', () => {
+      todayGoal = +goalSlider.value;
+      goalVal.textContent = todayGoal;
+    });
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('keydown', (e) => { if (e.key === 'Enter') fileInput.click(); });
+    ['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, (e) => {
+      e.preventDefault(); dropZone.classList.add('drag-over');
+    }));
+    ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, () => dropZone.classList.remove('drag-over')));
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const f = e.dataTransfer.files[0];
+      if (f) handleFile(f);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) handleFile(fileInput.files[0]);
+    });
+
+    btnStart.addEventListener('click', () => {
+      configPanel.classList.add('hidden');
+      studyView.classList.remove('hidden');
+      currentIdx = 0;
+      knownCount = 0;
+      unknownCount = 0;
+      reviewList = [];
+      zhVisible = false;
+      saveState();
+      showWord();
+    });
+
+    // 设置 / 重新导入
+    function handleSettingsReset() {
+      if (confirm('确定要清空当前词库和进度，重新导入吗？')) {
+        Object.values(LS).forEach(k => localStorage.removeItem(k));
+        wordList = []; todayGoal = 20; currentIdx = 0;
+        knownCount = 0; unknownCount = 0; reviewList = []; zhVisible = false;
+        goalSlider.value = 20; goalVal.textContent = '20';
+        importSt.textContent = ''; importSt.className = '';
+        hintText.style.opacity = '1';
+        btnStart.disabled = true; btnSettings.disabled = true;
+        studyView.classList.add('hidden');
+        rewardOvl.classList.add('hidden');
+        configPanel.classList.remove('hidden');
+      }
+    }
+    btnSettings.addEventListener('click', handleSettingsReset);
+    btnStudySettings.addEventListener('click', handleSettingsReset);
+
+    // ------ 模块B：刷词核心 ------
+
+    function showWord() {
+      const list = currentIdx < wordList.length ? wordList : [];
+      if (list.length === 0 && reviewList.length === 0) { finishSession(); return; }
+
+      const done = knownCount + unknownCount;
+      if (done >= todayGoal) { finishSession(); return; }
+
+      let wordObj;
+      if (currentIdx < wordList.length) {
+        wordObj = wordList[currentIdx];
+      } else if (reviewList.length > 0) {
+        wordObj = wordList[reviewList.shift()];
+      } else {
+        finishSession(); return;
+      }
+
+      wordEn.textContent = wordObj.en;
+      wordZh.textContent = wordObj.zh || '';
+      wordZh.classList.remove('show');
+      zhVisible = false;
+
+      wordCard.classList.remove('slide-out', 'slide-in');
+      void wordCard.offsetWidth;
+      wordCard.classList.add('slide-in');
+
+      btnNo.textContent = '我不会';
+      btnYes.textContent = '我认识';
+      btnNo.style.display = '';
+      btnYes.style.display = '';
+
+      const pct = Math.min(done / todayGoal * 100, 100);
+      progFill.style.width = pct + '%';
+      progText.textContent = `${done} / ${todayGoal}（剩余 ${Math.max(0, todayGoal - done)}）`;
+
+      saveState();
+    }
+
+    function handleUnknown() {
+      if (zhVisible) {
+        unknownCount++;
+        currentIdx++;
+        showWord();
+        return;
+      }
+      wordZh.classList.add('show');
+      zhVisible = true;
+      btnNo.textContent = '下一个';
+      if (!reviewList.includes(currentIdx)) reviewList.push(currentIdx);
+    }
+
+    function handleKnown() {
+      if (zhVisible) return;
+      knownCount++;
+      wordCard.classList.add('slide-out');
+      currentIdx++;
+      setTimeout(() => showWord(), 260);
+    }
+
+    btnNo.addEventListener('click', handleUnknown);
+    btnYes.addEventListener('click', handleKnown);
+
+    document.addEventListener('keydown', (e) => {
+      if (studyView.classList.contains('hidden')) return;
+      if (e.key === 'ArrowLeft')  handleUnknown();
+      if (e.key === 'ArrowRight') handleKnown();
+      if (e.key === ' ' && zhVisible) { e.preventDefault(); handleUnknown(); }
+    });
+
+    btnReset.addEventListener('click', () => {
+      if (confirm('确定重置今日进度？词库将保留。')) {
+        clearState();
+        currentIdx = 0; knownCount = 0; unknownCount = 0; reviewList = [];
+        showWord();
+      }
+    });
+
+    // ------ 模块C：完成奖励 ------
+    const REWARD_WORDS = ['excellent','outstanding','remarkable','fantastic','brilliant','superb','impressive'];
+
+    function finishSession() {
+      studyView.classList.add('hidden');
+      rewardOvl.classList.remove('hidden');
+
+      const rw = REWARD_WORDS[Math.floor(Math.random() * REWARD_WORDS.length)];
+      rewardWord.textContent = rw;
+      rewardWord.style.animation = 'none';
+      void rewardWord.offsetWidth;
+      rewardWord.style.animation = 'breathe 2.5s ease-in-out 1';
+
+      rewardStats.textContent = `今日认识 ${knownCount} 个 / 待复习 ${reviewList.length} 个`;
+      saveState();
+      spawnConfetti();
+    }
+
+    function spawnConfetti() {
+      const colors = ['#2B8CBF','#6BB5D6','#A4D4E6','#F8F6F0','#FFB347','#87CEEB'];
+      for (let i = 0; i < 50; i++) {
+        const el = document.createElement('div');
+        el.className = 'confetti-piece';
+        el.style.left = Math.random() * 100 + 'vw';
+        el.style.background = colors[Math.floor(Math.random() * colors.length)];
+        el.style.animationDuration = (1.5 + Math.random() * 2) + 's';
+        el.style.animationDelay = Math.random() * 0.8 + 's';
+        el.style.width  = (6 + Math.random() * 6) + 'px';
+        el.style.height = (6 + Math.random() * 6) + 'px';
+        el.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 4000);
+      }
+    }
+
+    btnAgain.addEventListener('click', () => {
+      rewardOvl.classList.add('hidden');
+      configPanel.classList.remove('hidden');
+      hintText.style.opacity = wordList.length > 0 ? '0' : '1';
+    });
+
+    // ------ 页面加载：恢复状态 ------
+    (function init() {
+      if (loadState() && wordList.length > 0) {
+        configPanel.classList.add('hidden');
+        studyView.classList.remove('hidden');
+        showWord();
+      } else {
+        configPanel.classList.remove('hidden');
+        studyView.classList.add('hidden');
+      }
+    })();
+  </script>
+</body>
+</html>
